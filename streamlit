@@ -1,0 +1,105 @@
+mkdir private_social_media
+cd private_social_media
+python -m venv venv
+source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+pip install streamlit pandas sqlalchemy
+import streamlit as st
+import pandas as pd
+from sqlalchemy import create_engine, Column, Integer, String, Date, Text, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import date
+
+# Database setup
+Base = declarative_base()
+engine = create_engine('sqlite:///emotions.db')
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# User model
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True, nullable=False)
+    password = Column(String, nullable=False)
+
+# EmotionLog model
+class EmotionLog(Base):
+    __tablename__ = 'emotion_logs'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    date = Column(Date, default=date.today)
+    emotion = Column(String, nullable=False)
+    note = Column(Text, nullable=True)
+
+Base.metadata.create_all(engine)
+
+# User authentication
+def login(username, password):
+    user = session.query(User).filter_by(username=username, password=password).first()
+    return user
+
+def signup(username, password):
+    user = User(username=username, password=password)
+    session.add(user)
+    session.commit()
+
+# Main application
+def main():
+    st.title("Private Social Media Platform")
+
+    # Authentication
+    if 'user' not in st.session_state:
+        st.session_state.user = None
+
+    if st.session_state.user:
+        st.sidebar.write(f"Logged in as {st.session_state.user.username}")
+        if st.sidebar.button("Logout"):
+            st.session_state.user = None
+
+    else:
+        st.sidebar.title("Login/Signup")
+        login_form = st.sidebar.form(key='login_form')
+        username = login_form.text_input("Username")
+        password = login_form.text_input("Password", type="password")
+        login_btn = login_form.form_submit_button("Login")
+        signup_btn = login_form.form_submit_button("Signup")
+
+        if login_btn:
+            user = login(username, password)
+            if user:
+                st.session_state.user = user
+                st.sidebar.success("Logged in successfully")
+            else:
+                st.sidebar.error("Invalid credentials")
+
+        if signup_btn:
+            if session.query(User).filter_by(username=username).first():
+                st.sidebar.error("Username already taken")
+            else:
+                signup(username, password)
+                st.sidebar.success("Signup successful. Please login.")
+
+    # Emotion Check-In
+    if st.session_state.user:
+        st.header("Emotion Check-In")
+        with st.form(key='emotion_form'):
+            emotion = st.text_input("How are you feeling today?")
+            note = st.text_area("Any notes?")
+            submit_button = st.form_submit_button("Log Emotion")
+
+            if submit_button:
+                new_log = EmotionLog(user_id=st.session_state.user.id, emotion=emotion, note=note)
+                session.add(new_log)
+                session.commit()
+                st.success("Emotion logged successfully")
+
+        # Display emotion logs
+        st.header("Emotion History")
+        logs = session.query(EmotionLog).filter_by(user_id=st.session_state.user.id).all()
+        for log in logs:
+            st.write(f"{log.date}: {log.emotion} - {log.note}")
+
+if __name__ == "__main__":
+    main()
+streamlit run app.py
